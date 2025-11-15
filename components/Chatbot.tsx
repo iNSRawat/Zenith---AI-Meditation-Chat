@@ -2,6 +2,49 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage } from '../types';
 import { streamChatResponse } from '../services/geminiService';
 
+const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
+    const parseMarkdown = (text: string) => {
+        const blocks = text.split(/\n\s*\n/).filter(block => block.trim() !== '');
+
+        const htmlBlocks = blocks.map(block => {
+            block = block.trim();
+
+            const isList = block.match(/^\s*([-*]|\d+\.)\s/);
+            if (isList) {
+                const isOl = block.match(/^\s*\d+\.\s/);
+                const listTag = isOl ? 'ol' : 'ul';
+                const listClass = isOl ? 'list-decimal list-inside pl-4 space-y-1' : 'list-disc list-inside pl-4 space-y-1';
+                
+                const items = block.split('\n').map(item => {
+                    let content = item.replace(/^\s*([-*]|\d+\.)\s+/, '');
+                    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                     .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                     .replace(/`([^`]+)`/g, '<code class="bg-slate-600 rounded px-1 py-0.5 text-sm font-mono">$1</code>');
+                    return `<li>${content}</li>`;
+                }).join('');
+
+                return `<${listTag} class="${listClass}">${items}</${listTag}>`;
+            }
+            
+            let formattedBlock = block.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                      .replace(/`([^`]+)`/g, '<code class="bg-slate-600 rounded px-1 py-0.5 text-sm font-mono">$1</code>');
+                                      
+            return `<p>${formattedBlock.replace(/\n/g, '<br />')}</p>`;
+        });
+
+        return htmlBlocks.join('');
+    };
+
+    return (
+        <div
+            className="prose prose-sm prose-invert max-w-none [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2"
+            dangerouslySetInnerHTML={{ __html: parseMarkdown(content) }}
+        />
+    );
+};
+
+
 const Chatbot: React.FC = () => {
     const [messages, setMessages] = useState<ChatMessage[]>([
         { role: 'model', content: "Hello! How can I help you on your mindfulness journey today?" }
@@ -84,7 +127,11 @@ const Chatbot: React.FC = () => {
                     <div key={index} className={`flex items-start gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                         {msg.role === 'model' && <div className="flex-shrink-0"><ModelIcon /></div>}
                         <div className={`max-w-md lg:max-w-lg p-3 rounded-xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-slate-700 text-slate-200 rounded-bl-none'}`}>
-                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                           {msg.role === 'model' && msg.content ? (
+                                <MarkdownRenderer content={msg.content} />
+                            ) : (
+                                <p className="whitespace-pre-wrap">{msg.content}</p>
+                            )}
                         </div>
                          {msg.role === 'user' && <div className="flex-shrink-0"><UserIcon /></div>}
                     </div>

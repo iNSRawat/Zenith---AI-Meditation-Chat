@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { generateMeditationScript, generateMeditationImage, generateMeditationAudio } from '../services/geminiService';
 import { createAudioUrlFromBase64 } from '../utils/audioUtils';
+import { SessionHistoryItem } from '../types';
 
 const LoadingIndicator: React.FC<{ stage: string }> = ({ stage }) => (
     <div className="flex flex-col items-center justify-center space-y-4 p-8 bg-slate-800 rounded-lg">
@@ -21,10 +22,6 @@ const backgroundTracks = [
   { value: 'upload', label: 'Upload Custom...' },
 ];
 
-// Check for SpeechRecognition API
-const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-const isSpeechRecognitionSupported = !!SpeechRecognition;
-
 const MeditationGenerator: React.FC = () => {
     const [prompt, setPrompt] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -34,13 +31,32 @@ const MeditationGenerator: React.FC = () => {
     const [selectedTrack, setSelectedTrack] = useState<string>('none');
     const [backgroundMusicUrl, setBackgroundMusicUrl] = useState<string>('');
     const [backgroundMusicVolume, setBackgroundMusicVolume] = useState<number>(0.3);
-    const [isListening, setIsListening] = useState<boolean>(false);
+    const [history, setHistory] = useState<SessionHistoryItem[]>([]);
+    
     const [isPlaying, setIsPlaying] = useState<boolean>(false);
-
+    const [currentTime, setCurrentTime] = useState<number>(0);
+    const [duration, setDuration] = useState<number>(0);
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const backgroundAudioRef = useRef<HTMLAudioElement>(null);
-    const recognitionRef = useRef<any>(null);
+
+    // Load history from localStorage on initial mount
+    useEffect(() => {
+        try {
+            const storedHistory = localStorage.getItem('meditationHistory');
+            if (storedHistory) {
+                setHistory(JSON.parse(storedHistory));
+            }
+        } catch (error) {
+            console.error("Failed to load meditation history from localStorage", error);
+            localStorage.removeItem('meditationHistory'); // Clear corrupted data
+        }
+    }, []);
+
+    // Save history to localStorage whenever it changes
+    useEffect(() => {
+        localStorage.setItem('meditationHistory', JSON.stringify(history));
+    }, [history]);
 
     // Effect to handle cleanup of blob URLs
     useEffect(() => {
@@ -61,73 +77,8 @@ const MeditationGenerator: React.FC = () => {
         }
     }, [backgroundMusicUrl]);
 
-    // Effect for handling playback control voice commands
-    useEffect(() => {
-        if (!isSpeechRecognitionSupported || !sessionData?.audioUrl) {
-            return;
-        }
 
-        const controlRecognition = new SpeechRecognition();
-        controlRecognition.continuous = true;
-        controlRecognition.interimResults = false;
-
-        controlRecognition.onresult = (event: any) => {
-            const command = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-            
-            // Music Selection Command
-            const trackToSet = backgroundTracks.find(t => t.value !== 'upload' && command.includes(t.label.toLowerCase()));
-            if (trackToSet) {
-                setSelectedTrack(trackToSet.value);
-                setBackgroundMusicUrl(trackToSet.value === 'none' ? '' : trackToSet.value);
-                return; 
-            }
-
-            // Volume Control Commands
-            if (command.includes('increase volume') || command.includes('turn up')) {
-                setBackgroundMusicVolume(prev => Math.min(1, prev + 0.2));
-                return;
-            }
-            if (command.includes('decrease volume') || command.includes('turn down')) {
-                setBackgroundMusicVolume(prev => Math.max(0, prev - 0.2));
-                return;
-            }
-
-            // Playback Control Commands
-            if (command.includes('play')) {
-                audioRef.current?.play();
-            } else if (command.includes('pause')) {
-                audioRef.current?.pause();
-            } else if (command.includes('stop')) {
-                if(audioRef.current) {
-                    audioRef.current.pause();
-                    audioRef.current.currentTime = 0;
-                }
-            }
-        };
-        
-        controlRecognition.onerror = (event: any) => {
-            console.error("Playback control speech recognition error", event.error);
-        };
-
-        if (isPlaying) {
-             try {
-                controlRecognition.start();
-            } catch (e) {
-                console.error("Playback control recognition could not be started:", e);
-            }
-        } else {
-            controlRecognition.stop();
-        }
-
-        return () => {
-            controlRecognition.stop();
-        };
-
-    }, [isPlaying, sessionData]);
-
-
-    const handleGenerate = async (e?: React.FormEvent) => {
-        e?.preventDefault();
+    const handleGenerate = async () => {
         if (!prompt.trim()) {
             setError('Please enter a theme for your meditation.');
             return;
@@ -138,10 +89,11 @@ const MeditationGenerator: React.FC = () => {
         setSessionData(null);
         setSelectedTrack('none');
         setBackgroundMusicUrl('');
-        if (backgroundAudioRef.current) {
-            backgroundAudioRef.current.pause();
-        }
-
+        if (backgroundAudioRef.current) backgroundAudioRef.current.pause();
+        
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setDuration(0);
 
         try {
             setLoadingStage('Crafting meditation script & visuals...');
@@ -150,7 +102,7 @@ const MeditationGenerator: React.FC = () => {
             const [script, imageBase64] = await Promise.all([scriptPromise, imagePromise]);
             
             const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
-            setSessionData({ imageUrl, audioUrl: '' });
+            setSessionData({ imageUrl, audioUrl: '' }); // Show image while audio loads
 
             setLoadingStage('Synthesizing soothing voiceover...');
             const audioBase64 = await generateMeditationAudio(script);
@@ -159,6 +111,22 @@ const MeditationGenerator: React.FC = () => {
             const audioUrl = await createAudioUrlFromBase64(audioBase64);
 
             setSessionData({ imageUrl, audioUrl });
+
+            // Add to history
+            const newHistoryItem: SessionHistoryItem = {
+                id: new Date().toISOString(),
+                prompt,
+                imageBase64,
+                audioBase64,
+                timestamp: Date.now(),
+            };
+
+            setHistory(prevHistory => {
+                const filteredHistory = prevHistory.filter(item => item.prompt.toLowerCase() !== prompt.toLowerCase().trim());
+                const updatedHistory = [newHistoryItem, ...filteredHistory];
+                return updatedHistory.slice(0, 10); // Keep latest 10 sessions
+            });
+
         } catch (err: any) {
             setError(err.message || 'An unexpected error occurred. Please try again.');
         } finally {
@@ -167,51 +135,42 @@ const MeditationGenerator: React.FC = () => {
         }
     };
 
-    const handleVoiceInput = () => {
-        if (!isSpeechRecognitionSupported || isListening) {
-            return;
+    const handleLoadFromHistory = async (item: SessionHistoryItem) => {
+        setIsLoading(true);
+        setError(null);
+        setLoadingStage('Loading session from history...');
+        
+        if (audioRef.current) audioRef.current.pause();
+        if (backgroundAudioRef.current) backgroundAudioRef.current.pause();
+
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setDuration(0);
+
+        try {
+            const imageUrl = `data:image/jpeg;base64,${item.imageBase64}`;
+            const audioUrl = await createAudioUrlFromBase64(item.audioBase64);
+
+            setPrompt(item.prompt);
+            setSessionData({ imageUrl, audioUrl });
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        } catch (err: any) {
+            setError("Failed to load the session. The data might be corrupted.");
+        } finally {
+            setIsLoading(false);
+            setLoadingStage('');
         }
-        
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.interimResults = true;
+    };
 
-        recognitionRef.current.onresult = (event: any) => {
-            let interimTranscript = '';
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    setPrompt(prev => prev + event.results[i][0].transcript);
-                } else {
-                    interimTranscript += event.results[i][0].transcript;
-                }
-            }
-        };
-
-        recognitionRef.current.onstart = () => {
-            setIsListening(true);
-        };
-        
-        recognitionRef.current.onend = () => {
-            setIsListening(false);
-            recognitionRef.current = null;
-        };
-        
-        recognitionRef.current.onerror = (event: any) => {
-            console.error("Speech recognition error", event.error);
-            if (event.error === 'not-allowed') {
-                setError("Microphone access was denied. Please enable microphone permissions in your browser settings to use this feature.");
-            } else {
-                setError(`Voice Error: ${event.error}. Please try again.`);
-            }
-            setIsListening(false);
-        };
-
-        setPrompt('');
-        recognitionRef.current.start();
+    const handleClearHistory = () => {
+        if (window.confirm("Are you sure you want to clear your entire meditation history?")) {
+            setHistory([]);
+        }
     };
 
     const syncPlay = () => {
-        setIsPlaying(true);
         if (backgroundAudioRef.current && backgroundMusicUrl) {
             backgroundAudioRef.current.volume = backgroundMusicVolume;
             backgroundAudioRef.current.play().catch(console.error);
@@ -219,7 +178,6 @@ const MeditationGenerator: React.FC = () => {
     };
 
     const syncPause = () => {
-        setIsPlaying(false);
         backgroundAudioRef.current?.pause();
     };
     
@@ -251,6 +209,31 @@ const MeditationGenerator: React.FC = () => {
             backgroundAudioRef.current.volume = newVolume;
         }
     };
+    
+    const togglePlayPause = () => {
+        if (audioRef.current) {
+            if (isPlaying) {
+                audioRef.current.pause();
+            } else {
+                audioRef.current.play().catch(console.error);
+            }
+        }
+    };
+
+    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (audioRef.current) {
+            const newTime = parseFloat(e.target.value);
+            audioRef.current.currentTime = newTime;
+            setCurrentTime(newTime);
+        }
+    };
+
+    const formatTime = (timeInSeconds: number): string => {
+        if (isNaN(timeInSeconds) || timeInSeconds < 0) return '00:00';
+        const minutes = Math.floor(timeInSeconds / 60);
+        const seconds = Math.floor(timeInSeconds % 60);
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
 
     const SparklesIcon = () => (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -264,10 +247,16 @@ const MeditationGenerator: React.FC = () => {
       </svg>
     );
 
-    const MicIcon: React.FC<{isListening: boolean}> = ({ isListening }) => (
-      <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 transition-colors ${isListening ? 'text-red-500' : 'text-slate-400'}`} viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm5 10.5a.5.5 0 01.5.5v.5a.5.5 0 01-1 0V15a.5.5 0 01.5-.5zM5 15a.5.5 0 00-1 0v.5a.5.5 0 001 0V15zM10 14a4 4 0 004-4V4a4 4 0 10-8 0v6a4 4 0 004 4z" clipRule="evenodd" />
-      </svg>
+    const PlayIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+        </svg>
+    );
+    
+    const PauseIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M5.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75A.75.75 0 007.25 3h-1.5zM12.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75h-1.5z" />
+        </svg>
     );
 
     return (
@@ -276,39 +265,24 @@ const MeditationGenerator: React.FC = () => {
                 <h2 className="text-2xl font-bold text-center mb-1 text-slate-100">Create Your Sanctuary</h2>
                 <p className="text-center text-slate-400 mb-6">Describe the theme for your personalized meditation session.</p>
                 
-                <form onSubmit={handleGenerate} className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative flex-grow">
-                        <input
-                            type="text"
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            placeholder={isListening ? "Listening..." : "e.g., A calm forest by a gentle stream"}
-                            disabled={isLoading}
-                            className="w-full bg-slate-700 border border-slate-600 rounded-lg pl-4 pr-12 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-50"
-                        />
-                        {isSpeechRecognitionSupported && (
-                           <button 
-                                type="button" 
-                                onClick={handleVoiceInput} 
-                                disabled={isLoading}
-                                className="absolute inset-y-0 right-0 flex items-center pr-3 group disabled:opacity-50"
-                                aria-label="Use voice input"
-                            >
-                                <MicIcon isListening={isListening} />
-                                {isListening && <span className="absolute w-full h-full bg-red-500 rounded-full opacity-20 animate-ping"></span>}
-                           </button>
-                        )}
-                    </div>
-
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                        type="text"
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        placeholder="e.g., A calm forest by a gentle stream"
+                        disabled={isLoading}
+                        className="flex-grow bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-50"
+                    />
                     <button
-                        type="submit"
+                        onClick={handleGenerate}
                         disabled={isLoading}
                         className="flex items-center justify-center gap-2 bg-indigo-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-indigo-700 transition-all duration-300 disabled:bg-indigo-500 disabled:cursor-not-allowed transform hover:scale-105"
                     >
                       <SparklesIcon />
                       {isLoading ? 'Generating...' : 'Generate'}
                     </button>
-                </form>
+                </div>
                 {error && <p className="text-red-400 text-center mt-4">{error}</p>}
             </div>
 
@@ -319,57 +293,132 @@ const MeditationGenerator: React.FC = () => {
                     <img src={sessionData.imageUrl} alt={prompt} className="w-full h-full object-cover" />
                     {sessionData.audioUrl && (
                         <div className="absolute bottom-0 left-0 right-0 p-4 bg-black/60 backdrop-blur-sm">
-                            <audio 
-                                ref={audioRef} 
-                                controls 
-                                src={sessionData.audioUrl} 
-                                className="w-full mb-3"
-                                onPlay={syncPlay}
-                                onPause={syncPause}
-                                onEnded={syncPause}
+                            <audio
+                                ref={audioRef}
+                                src={sessionData.audioUrl}
+                                onPlay={() => { setIsPlaying(true); syncPlay(); }}
+                                onPause={() => { setIsPlaying(false); syncPause(); }}
+                                onEnded={() => {
+                                    setIsPlaying(false);
+                                    syncPause();
+                                    setCurrentTime(0);
+                                }}
+                                onTimeUpdate={() => { if (audioRef.current) setCurrentTime(audioRef.current.currentTime); }}
+                                onLoadedMetadata={() => { if (audioRef.current) setDuration(audioRef.current.duration); }}
+                                hidden
                             >
                                 Your browser does not support the audio element.
                             </audio>
-                             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                                <label htmlFor="music-select" className="text-sm font-medium text-slate-300">Background Music:</label>
-                                <select 
-                                    id="music-select" 
-                                    value={selectedTrack} 
-                                    onChange={handleMusicChange}
-                                    className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                >
-                                    {backgroundTracks.map(track => (
-                                        <option key={track.value} value={track.value}>{track.label}</option>
-                                    ))}
-                                </select>
-                                
-                                {selectedTrack === 'upload' && (
-                                    <input 
-                                        type="file" 
-                                        accept="audio/*" 
-                                        onChange={handleFileUpload}
-                                        className="text-sm text-slate-300 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-500 file:text-white hover:file:bg-indigo-600"
-                                    />
-                                )}
-                                
-                                {backgroundMusicUrl && (
-                                    <div className="flex items-center gap-2 flex-grow min-w-[150px]">
-                                        <VolumeIcon />
-                                        <input 
-                                            type="range" 
-                                            min="0" 
-                                            max="1" 
-                                            step="0.05" 
-                                            value={backgroundMusicVolume}
-                                            onChange={handleVolumeChange}
+
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-3">
+                                    <button onClick={togglePlayPause} aria-label={isPlaying ? 'Pause meditation' : 'Play meditation'} className="flex-shrink-0 text-white p-3 rounded-full bg-slate-700/80 hover:bg-slate-600/80 transition focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                                    </button>
+                                    <div className="flex items-center gap-2 flex-grow">
+                                        <span className="text-xs font-mono text-slate-300 w-12 text-center">{formatTime(currentTime)}</span>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max={duration || 0}
+                                            value={currentTime}
+                                            onChange={handleSeek}
+                                            aria-label="Seek audio track"
                                             className="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                                         />
+                                        <span className="text-xs font-mono text-slate-300 w-12 text-center">{formatTime(duration)}</span>
                                     </div>
-                                )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                    <label htmlFor="music-select" className="text-sm font-medium text-slate-300">Background Music:</label>
+                                    <select 
+                                        id="music-select" 
+                                        value={selectedTrack} 
+                                        onChange={handleMusicChange}
+                                        className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    >
+                                        {backgroundTracks.map(track => (
+                                            <option key={track.value} value={track.value}>{track.label}</option>
+                                        ))}
+                                    </select>
+                                    
+                                    {selectedTrack === 'upload' && (
+                                        <input 
+                                            type="file" 
+                                            accept="audio/*" 
+                                            onChange={handleFileUpload}
+                                            className="text-sm text-slate-300 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-500 file:text-white hover:file:bg-indigo-600"
+                                        />
+                                    )}
+                                    
+                                    {backgroundMusicUrl && (
+                                        <div className="flex items-center gap-2 flex-grow min-w-[150px]">
+                                            <VolumeIcon />
+                                            <input 
+                                                type="range" 
+                                                min="0" 
+                                                max="1" 
+                                                step="0.05" 
+                                                value={backgroundMusicVolume}
+                                                onChange={handleVolumeChange}
+                                                className="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                                aria-label="Background music volume"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
                     <audio ref={backgroundAudioRef} src={backgroundMusicUrl} loop hidden />
+                </div>
+            )}
+
+            {history.length > 0 && !sessionData && !isLoading && (
+                <div className="w-full mt-8 bg-slate-800/50 p-6 rounded-xl shadow-lg border border-slate-700">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold text-slate-200">Session History</h3>
+                        <button
+                            onClick={handleClearHistory}
+                            className="text-sm text-slate-400 hover:text-red-400 transition-colors"
+                            aria-label="Clear session history"
+                        >
+                            Clear All
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {history.map((item) => (
+                             <div 
+                                key={item.id}
+                                className="group bg-slate-700 rounded-lg overflow-hidden shadow-md cursor-pointer transition-transform transform hover:-translate-y-1 border border-slate-600 hover:border-indigo-500"
+                                onClick={() => handleLoadFromHistory(item)}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Load session: ${item.prompt}`}
+                                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleLoadFromHistory(item)}
+                            >
+                                <div className="relative">
+                                    <img
+                                        src={`data:image/jpeg;base64,${item.imageBase64}`}
+                                        alt={item.prompt}
+                                        className="w-full h-24 object-cover"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                        <div className="bg-indigo-600 text-white rounded-full p-3 shadow-lg">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="p-3">
+                                    <p className="text-slate-200 text-sm font-medium truncate group-hover:text-indigo-300">{item.prompt}</p>
+                                    <p className="text-slate-400 text-xs mt-1">{new Date(item.timestamp).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>
