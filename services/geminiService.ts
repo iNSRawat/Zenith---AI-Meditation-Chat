@@ -8,6 +8,22 @@ if (!process.env.API_KEY) {
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 let chatInstance: Chat | null = null;
 
+export const generateDailyFocus = async (): Promise<string> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: "Create a short, inspiring mindfulness quote or daily intention. It should be a single sentence, under 15 words. For example: 'Embrace the quiet moments today.' or 'Let curiosity guide your awareness.'",
+            config: {
+                temperature: 0.8,
+            }
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error generating daily focus:", error);
+        throw new Error("Failed to generate daily focus.");
+    }
+};
+
 export const generateMeditationScript = async (prompt: string): Promise<string> => {
     try {
         const response = await ai.models.generateContent({

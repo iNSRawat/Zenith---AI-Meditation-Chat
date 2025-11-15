@@ -1,6 +1,5 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { generateMeditationScript, generateMeditationImage, generateMeditationAudio } from '../services/geminiService';
+import { generateMeditationScript, generateMeditationImage, generateMeditationAudio, generateDailyFocus } from '../services/geminiService';
 import { createAudioUrlFromBase64 } from '../utils/audioUtils';
 import { SessionHistoryItem } from '../types';
 
@@ -21,6 +20,72 @@ const backgroundTracks = [
   { value: 'https://storage.googleapis.com/maker-suite-gallery/sounds/ocean-waves.mp3', label: 'Ocean Waves' },
   { value: 'upload', label: 'Upload Custom...' },
 ];
+
+const DailyFocus: React.FC = () => {
+    const [focus, setFocus] = useState<string>('');
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+
+    const getNewFocus = async () => {
+        setIsLoading(true);
+        try {
+            const newFocus = await generateDailyFocus();
+            const today = new Date().toISOString().split('T')[0];
+            const focusData = { focus: newFocus, date: today };
+            localStorage.setItem('dailyFocus', JSON.stringify(focusData));
+            setFocus(newFocus);
+        } catch (error) {
+            console.error(error);
+            setFocus("Breathe deeply and be present.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const storedData = localStorage.getItem('dailyFocus');
+        const today = new Date().toISOString().split('T')[0];
+
+        if (storedData) {
+            try {
+                const { focus, date } = JSON.parse(storedData);
+                if (date === today) {
+                    setFocus(focus);
+                    setIsLoading(false);
+                } else {
+                    getNewFocus();
+                }
+            } catch {
+                getNewFocus();
+            }
+        } else {
+            getNewFocus();
+        }
+    }, []);
+    
+    return (
+        <div className="w-full bg-slate-800/50 p-4 rounded-xl shadow-lg border border-slate-700 flex items-center justify-between gap-4">
+            <div className="flex-grow">
+                <p className="text-sm text-indigo-300 font-semibold mb-1">Today's Focus</p>
+                {isLoading ? (
+                    <div className="h-6 w-3/4 bg-slate-700 rounded animate-pulse"></div>
+                ) : (
+                    <p className="text-slate-100 text-lg italic">"{focus}"</p>
+                )}
+            </div>
+            <button
+                onClick={getNewFocus}
+                disabled={isLoading}
+                aria-label="Get new focus"
+                className="flex-shrink-0 p-2 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                </svg>
+            </button>
+        </div>
+    );
+};
+
 
 const MeditationGenerator: React.FC = () => {
     const [prompt, setPrompt] = useState<string>('');
@@ -261,6 +326,7 @@ const MeditationGenerator: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center space-y-6">
+            <DailyFocus />
             <div className="w-full bg-slate-800/50 p-6 rounded-xl shadow-lg border border-slate-700">
                 <h2 className="text-2xl font-bold text-center mb-1 text-slate-100">Create Your Sanctuary</h2>
                 <p className="text-center text-slate-400 mb-6">Describe the theme for your personalized meditation session.</p>
