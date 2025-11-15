@@ -21,6 +21,10 @@ const backgroundTracks = [
   { value: 'upload', label: 'Upload Custom...' },
 ];
 
+// Check for SpeechRecognition API
+const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+const isSpeechRecognitionSupported = !!SpeechRecognition;
+
 const MeditationGenerator: React.FC = () => {
     const [prompt, setPrompt] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -30,9 +34,13 @@ const MeditationGenerator: React.FC = () => {
     const [selectedTrack, setSelectedTrack] = useState<string>('none');
     const [backgroundMusicUrl, setBackgroundMusicUrl] = useState<string>('');
     const [backgroundMusicVolume, setBackgroundMusicVolume] = useState<number>(0.3);
+    const [isListening, setIsListening] = useState<boolean>(false);
+    const [isPlaying, setIsPlaying] = useState<boolean>(false);
+
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const backgroundAudioRef = useRef<HTMLAudioElement>(null);
+    const recognitionRef = useRef<any>(null);
 
     // Effect to handle cleanup of blob URLs
     useEffect(() => {
@@ -53,14 +61,78 @@ const MeditationGenerator: React.FC = () => {
         }
     }, [backgroundMusicUrl]);
 
+    // Effect for handling playback control voice commands
+    useEffect(() => {
+        if (!isSpeechRecognitionSupported || !sessionData?.audioUrl) {
+            return;
+        }
 
-    const handleGenerate = async () => {
+        const controlRecognition = new SpeechRecognition();
+        controlRecognition.continuous = true;
+        controlRecognition.interimResults = false;
+
+        controlRecognition.onresult = (event: any) => {
+            const command = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+            
+            // Music Selection Command
+            const trackToSet = backgroundTracks.find(t => t.value !== 'upload' && command.includes(t.label.toLowerCase()));
+            if (trackToSet) {
+                setSelectedTrack(trackToSet.value);
+                setBackgroundMusicUrl(trackToSet.value === 'none' ? '' : trackToSet.value);
+                return; 
+            }
+
+            // Volume Control Commands
+            if (command.includes('increase volume') || command.includes('turn up')) {
+                setBackgroundMusicVolume(prev => Math.min(1, prev + 0.2));
+                return;
+            }
+            if (command.includes('decrease volume') || command.includes('turn down')) {
+                setBackgroundMusicVolume(prev => Math.max(0, prev - 0.2));
+                return;
+            }
+
+            // Playback Control Commands
+            if (command.includes('play')) {
+                audioRef.current?.play();
+            } else if (command.includes('pause')) {
+                audioRef.current?.pause();
+            } else if (command.includes('stop')) {
+                if(audioRef.current) {
+                    audioRef.current.pause();
+                    audioRef.current.currentTime = 0;
+                }
+            }
+        };
+        
+        controlRecognition.onerror = (event: any) => {
+            console.error("Playback control speech recognition error", event.error);
+        };
+
+        if (isPlaying) {
+             try {
+                controlRecognition.start();
+            } catch (e) {
+                console.error("Playback control recognition could not be started:", e);
+            }
+        } else {
+            controlRecognition.stop();
+        }
+
+        return () => {
+            controlRecognition.stop();
+        };
+
+    }, [isPlaying, sessionData]);
+
+
+    const handleGenerate = async (e?: React.FormEvent) => {
+        e?.preventDefault();
         if (!prompt.trim()) {
             setError('Please enter a theme for your meditation.');
             return;
         }
 
-        // Reset previous session and music state
         setIsLoading(true);
         setError(null);
         setSessionData(null);
@@ -78,7 +150,7 @@ const MeditationGenerator: React.FC = () => {
             const [script, imageBase64] = await Promise.all([scriptPromise, imagePromise]);
             
             const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
-            setSessionData({ imageUrl, audioUrl: '' }); // Show image while audio loads
+            setSessionData({ imageUrl, audioUrl: '' });
 
             setLoadingStage('Synthesizing soothing voiceover...');
             const audioBase64 = await generateMeditationAudio(script);
@@ -95,7 +167,51 @@ const MeditationGenerator: React.FC = () => {
         }
     };
 
+    const handleVoiceInput = () => {
+        if (!isSpeechRecognitionSupported || isListening) {
+            return;
+        }
+        
+        recognitionRef.current = new SpeechRecognition();
+        recognitionRef.current.continuous = false;
+        recognitionRef.current.interimResults = true;
+
+        recognitionRef.current.onresult = (event: any) => {
+            let interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    setPrompt(prev => prev + event.results[i][0].transcript);
+                } else {
+                    interimTranscript += event.results[i][0].transcript;
+                }
+            }
+        };
+
+        recognitionRef.current.onstart = () => {
+            setIsListening(true);
+        };
+        
+        recognitionRef.current.onend = () => {
+            setIsListening(false);
+            recognitionRef.current = null;
+        };
+        
+        recognitionRef.current.onerror = (event: any) => {
+            console.error("Speech recognition error", event.error);
+            if (event.error === 'not-allowed') {
+                setError("Microphone access was denied. Please enable microphone permissions in your browser settings to use this feature.");
+            } else {
+                setError(`Voice Error: ${event.error}. Please try again.`);
+            }
+            setIsListening(false);
+        };
+
+        setPrompt('');
+        recognitionRef.current.start();
+    };
+
     const syncPlay = () => {
+        setIsPlaying(true);
         if (backgroundAudioRef.current && backgroundMusicUrl) {
             backgroundAudioRef.current.volume = backgroundMusicVolume;
             backgroundAudioRef.current.play().catch(console.error);
@@ -103,6 +219,7 @@ const MeditationGenerator: React.FC = () => {
     };
 
     const syncPause = () => {
+        setIsPlaying(false);
         backgroundAudioRef.current?.pause();
     };
     
@@ -147,30 +264,51 @@ const MeditationGenerator: React.FC = () => {
       </svg>
     );
 
+    const MicIcon: React.FC<{isListening: boolean}> = ({ isListening }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 transition-colors ${isListening ? 'text-red-500' : 'text-slate-400'}`} viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm5 10.5a.5.5 0 01.5.5v.5a.5.5 0 01-1 0V15a.5.5 0 01.5-.5zM5 15a.5.5 0 00-1 0v.5a.5.5 0 001 0V15zM10 14a4 4 0 004-4V4a4 4 0 10-8 0v6a4 4 0 004 4z" clipRule="evenodd" />
+      </svg>
+    );
+
     return (
         <div className="flex flex-col items-center space-y-6">
             <div className="w-full bg-slate-800/50 p-6 rounded-xl shadow-lg border border-slate-700">
                 <h2 className="text-2xl font-bold text-center mb-1 text-slate-100">Create Your Sanctuary</h2>
                 <p className="text-center text-slate-400 mb-6">Describe the theme for your personalized meditation session.</p>
                 
-                <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                        type="text"
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="e.g., A calm forest by a gentle stream"
-                        disabled={isLoading}
-                        className="flex-grow bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-50"
-                    />
+                <form onSubmit={handleGenerate} className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-grow">
+                        <input
+                            type="text"
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            placeholder={isListening ? "Listening..." : "e.g., A calm forest by a gentle stream"}
+                            disabled={isLoading}
+                            className="w-full bg-slate-700 border border-slate-600 rounded-lg pl-4 pr-12 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-50"
+                        />
+                        {isSpeechRecognitionSupported && (
+                           <button 
+                                type="button" 
+                                onClick={handleVoiceInput} 
+                                disabled={isLoading}
+                                className="absolute inset-y-0 right-0 flex items-center pr-3 group disabled:opacity-50"
+                                aria-label="Use voice input"
+                            >
+                                <MicIcon isListening={isListening} />
+                                {isListening && <span className="absolute w-full h-full bg-red-500 rounded-full opacity-20 animate-ping"></span>}
+                           </button>
+                        )}
+                    </div>
+
                     <button
-                        onClick={handleGenerate}
+                        type="submit"
                         disabled={isLoading}
                         className="flex items-center justify-center gap-2 bg-indigo-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-indigo-700 transition-all duration-300 disabled:bg-indigo-500 disabled:cursor-not-allowed transform hover:scale-105"
                     >
                       <SparklesIcon />
                       {isLoading ? 'Generating...' : 'Generate'}
                     </button>
-                </div>
+                </form>
                 {error && <p className="text-red-400 text-center mt-4">{error}</p>}
             </div>
 
