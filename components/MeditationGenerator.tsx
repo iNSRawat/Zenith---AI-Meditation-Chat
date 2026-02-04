@@ -1,25 +1,32 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { generateMeditationScript, generateMeditationImage, generateMeditationAudio, generateDailyFocus } from '../services/geminiService';
+
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { generateMeditationScript, generateMeditationImages, generateMeditationAudio, generateDailyFocus } from '../services/geminiService';
 import { createAudioUrlFromBase64 } from '../utils/audioUtils';
-import { SessionHistoryItem } from '../types';
+import { SessionHistoryItem, VoiceName, SessionConfig } from '../types';
+
+const VOICES: { value: VoiceName; label: string; desc: string; recommendedFor: string }[] = [
+    { value: 'Kore', label: 'Kore', desc: 'A gentle, soothing tone that feels like a warm embrace. Best for emotional healing and anxiety relief.', recommendedFor: 'Healing' },
+    { value: 'Charon', label: 'Charon', desc: 'A deep, resonant voice with a slow pace. Perfect for drifting off to sleep or entering a trance state.', recommendedFor: 'Sleep' },
+    { value: 'Zephyr', label: 'Zephyr', desc: 'A warm, balanced, and polished presence. The gold standard for daily mindfulness practice.', recommendedFor: 'Daily' },
+    { value: 'Fenrir', label: 'Fenrir', desc: 'A steady, grounding, and strong voice. Ideal for building focus and finding stability.', recommendedFor: 'Focus' },
+    { value: 'Puck', label: 'Puck', desc: 'A light, airy, and slightly playful tone. Great for morning energy and lifting the spirit.', recommendedFor: 'Energy' },
+];
 
 const LoadingIndicator: React.FC<{ stage: string }> = ({ stage }) => (
-    <div className="flex flex-col items-center justify-center space-y-4 p-8 bg-slate-800 rounded-lg">
-        <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-indigo-400"></div>
-        <p className="text-slate-300 font-medium text-center">
-            Generating your session...
-            <span className="block text-sm text-slate-400 mt-1">{stage}</span>
-        </p>
+    <div className="flex flex-col items-center justify-center space-y-6 p-12 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-indigo-500/30 shadow-2xl">
+        <div className="relative">
+            <div className="w-20 h-20 border-4 border-indigo-500/20 rounded-full"></div>
+            <div className="w-20 h-20 border-4 border-t-indigo-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin absolute top-0"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-10 h-10 bg-indigo-500/10 rounded-full animate-pulse"></div>
+            </div>
+        </div>
+        <div className="text-center space-y-2">
+            <p className="text-xl font-semibold text-white animate-pulse">Zenith is preparing...</p>
+            <p className="text-indigo-300/80 text-sm font-medium">{stage}</p>
+        </div>
     </div>
 );
-
-const backgroundTracks = [
-  { value: 'none', label: 'None' },
-  { value: 'https://storage.googleapis.com/maker-suite-gallery/sounds/soft-piano.mp3', label: 'Soft Piano' },
-  { value: 'https://storage.googleapis.com/maker-suite-gallery/sounds/ambient-pad.mp3', label: 'Ambient Pad' },
-  { value: 'https://storage.googleapis.com/maker-suite-gallery/sounds/ocean-waves.mp3', label: 'Ocean Waves' },
-  { value: 'upload', label: 'Upload Custom...' },
-];
 
 const DailyFocus: React.FC = () => {
     const [focus, setFocus] = useState<string>('');
@@ -30,463 +37,420 @@ const DailyFocus: React.FC = () => {
         try {
             const newFocus = await generateDailyFocus();
             const today = new Date().toISOString().split('T')[0];
-            const focusData = { focus: newFocus, date: today };
-            localStorage.setItem('dailyFocus', JSON.stringify(focusData));
+            localStorage.setItem('dailyFocus', JSON.stringify({ focus: newFocus, date: today }));
             setFocus(newFocus);
         } catch (error) {
-            console.error(error);
-            setFocus("Breathe deeply and be present.");
+            setFocus("Inhale peace, exhale tension.");
         } finally {
             setIsLoading(false);
         }
     };
 
     useEffect(() => {
-        const storedData = localStorage.getItem('dailyFocus');
+        const stored = localStorage.getItem('dailyFocus');
         const today = new Date().toISOString().split('T')[0];
-
-        if (storedData) {
-            try {
-                const { focus, date } = JSON.parse(storedData);
-                if (date === today) {
-                    setFocus(focus);
-                    setIsLoading(false);
-                } else {
-                    getNewFocus();
-                }
-            } catch {
-                getNewFocus();
-            }
-        } else {
-            getNewFocus();
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed.date === today) { setFocus(parsed.focus); setIsLoading(false); return; }
         }
+        getNewFocus();
     }, []);
     
     return (
-        <div className="w-full bg-slate-800/50 p-4 rounded-xl shadow-lg border border-slate-700 flex items-center justify-between gap-4">
+        <div className="w-full bg-indigo-950/20 backdrop-blur-md p-5 rounded-2xl border border-indigo-500/20 shadow-xl flex items-center justify-between group">
             <div className="flex-grow">
-                <p className="text-sm text-indigo-300 font-semibold mb-1">Today's Focus</p>
+                <span className="text-[10px] uppercase tracking-widest text-indigo-400 font-bold mb-1 block">Daily Intention</span>
                 {isLoading ? (
-                    <div className="h-6 w-3/4 bg-slate-700 rounded animate-pulse"></div>
+                    <div className="h-6 w-48 bg-white/5 rounded animate-pulse"></div>
                 ) : (
-                    <p className="text-slate-100 text-lg italic">"{focus}"</p>
+                    <p className="text-slate-100 text-lg font-light leading-relaxed italic">"{focus}"</p>
                 )}
             </div>
             <button
                 onClick={getNewFocus}
                 disabled={isLoading}
-                aria-label="Get new focus"
-                className="flex-shrink-0 p-2 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-3 rounded-full hover:bg-white/10 text-indigo-400 hover:text-white transition-all disabled:opacity-30"
+                title="Refresh intention"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                <svg className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
             </button>
         </div>
     );
 };
 
+const BreathingGuide: React.FC<{ isActive: boolean }> = ({ isActive }) => {
+    if (!isActive) return null;
+    return (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+            <div className="relative flex items-center justify-center">
+                {/* Outermost Ring */}
+                <div className="w-48 h-48 rounded-full border border-white/10 animate-[ping_4s_infinite]"></div>
+                {/* Scaling Circle */}
+                <div className="absolute w-40 h-40 bg-indigo-500/20 backdrop-blur-sm rounded-full border-2 border-white/30 flex items-center justify-center transition-all duration-[4000ms] ease-in-out animate-[breath_8s_infinite]">
+                    <span className="text-white/60 text-xs font-medium uppercase tracking-[0.2em] animate-[breathText_8s_infinite]"></span>
+                </div>
+            </div>
+            <style>{`
+                @keyframes breath {
+                    0%, 100% { transform: scale(0.6); opacity: 0.3; }
+                    40%, 60% { transform: scale(1.1); opacity: 0.7; }
+                }
+                @keyframes breathText {
+                    0%, 10%, 90%, 100% { content: 'Hold'; opacity: 0; }
+                    15%, 35% { content: 'Inhale'; opacity: 1; }
+                    65%, 85% { content: 'Exhale'; opacity: 1; }
+                }
+                .animate-breathText::after {
+                    animation: breathTextContent 8s infinite;
+                    content: 'Inhale';
+                }
+                @keyframes breathTextContent {
+                    0%, 10% { content: 'Hold'; }
+                    15%, 35% { content: 'Inhale'; }
+                    40%, 60% { content: 'Hold'; }
+                    65%, 85% { content: 'Exhale'; }
+                    90%, 100% { content: 'Hold'; }
+                }
+            `}</style>
+        </div>
+    );
+};
 
 const MeditationGenerator: React.FC = () => {
-    const [prompt, setPrompt] = useState<string>('');
+    const [config, setConfig] = useState<SessionConfig>({
+        prompt: '',
+        voice: 'Zephyr',
+        atmosphere: 'Calm & Ethereal',
+        duration: 'medium'
+    });
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [loadingStage, setLoadingStage] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
-    const [sessionData, setSessionData] = useState<{ imageUrl: string; audioUrl: string } | null>(null);
-    const [selectedTrack, setSelectedTrack] = useState<string>('none');
-    const [backgroundMusicUrl, setBackgroundMusicUrl] = useState<string>('');
-    const [backgroundMusicVolume, setBackgroundMusicVolume] = useState<number>(0.3);
+    const [sessionData, setSessionData] = useState<{ images: string[]; audioUrl: string } | null>(null);
+    const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [history, setHistory] = useState<SessionHistoryItem[]>([]);
+    const [showBreathingGuide, setShowBreathingGuide] = useState(true);
+    const [isZenMode, setIsZenMode] = useState(false);
     
     const [isPlaying, setIsPlaying] = useState<boolean>(false);
     const [currentTime, setCurrentTime] = useState<number>(0);
     const [duration, setDuration] = useState<number>(0);
 
     const audioRef = useRef<HTMLAudioElement>(null);
-    const backgroundAudioRef = useRef<HTMLAudioElement>(null);
 
-    // Load history from localStorage on initial mount
     useEffect(() => {
-        try {
-            const storedHistory = localStorage.getItem('meditationHistory');
-            if (storedHistory) {
-                setHistory(JSON.parse(storedHistory));
-            }
-        } catch (error) {
-            console.error("Failed to load meditation history from localStorage", error);
-            localStorage.removeItem('meditationHistory'); // Clear corrupted data
-        }
+        const stored = localStorage.getItem('meditationHistory');
+        if (stored) setHistory(JSON.parse(stored));
     }, []);
 
-    // Save history to localStorage whenever it changes
     useEffect(() => {
         localStorage.setItem('meditationHistory', JSON.stringify(history));
     }, [history]);
 
-    // Effect to handle cleanup of blob URLs
+    // Slideshow Effect
     useEffect(() => {
-        return () => {
-            if (backgroundMusicUrl && backgroundMusicUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(backgroundMusicUrl);
-            }
-        };
-    }, [backgroundMusicUrl]);
-
-    // Effect to control background audio playback when source changes
-     useEffect(() => {
-        if (backgroundMusicUrl && backgroundAudioRef.current) {
-            if (audioRef.current && !audioRef.current.paused) {
-                backgroundAudioRef.current.volume = backgroundMusicVolume;
-                backgroundAudioRef.current.play().catch(console.error);
-            }
+        if (sessionData && isPlaying) {
+            const interval = setInterval(() => {
+                setCurrentImageIndex(prev => (prev + 1) % sessionData.images.length);
+            }, 10000);
+            return () => clearInterval(interval);
         }
-    }, [backgroundMusicUrl]);
-
+    }, [sessionData, isPlaying]);
 
     const handleGenerate = async () => {
-        if (!prompt.trim()) {
-            setError('Please enter a theme for your meditation.');
-            return;
-        }
-
+        if (!config.prompt.trim()) { setError('Describe your sanctuary first.'); return; }
         setIsLoading(true);
         setError(null);
         setSessionData(null);
-        setSelectedTrack('none');
-        setBackgroundMusicUrl('');
-        if (backgroundAudioRef.current) backgroundAudioRef.current.pause();
+        setIsZenMode(false);
         
-        setIsPlaying(false);
-        setCurrentTime(0);
-        setDuration(0);
-
         try {
-            setLoadingStage('Crafting meditation script & visuals...');
-            const scriptPromise = generateMeditationScript(prompt);
-            const imagePromise = generateMeditationImage(prompt);
-            const [script, imageBase64] = await Promise.all([scriptPromise, imagePromise]);
+            setLoadingStage('Visualizing your sanctuary...');
+            const images = await generateMeditationImages(config.prompt);
+            setSessionData({ images, audioUrl: '' }); // Preview visuals
             
-            const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
-            setSessionData({ imageUrl, audioUrl: '' }); // Show image while audio loads
-
-            setLoadingStage('Synthesizing soothing voiceover...');
-            const audioBase64 = await generateMeditationAudio(script);
+            setLoadingStage('Channeling serenity into words...');
+            const script = await generateMeditationScript(config);
             
-            setLoadingStage('Preparing your audio...');
+            setLoadingStage(`Capturing the voice of ${config.voice}...`);
+            const audioBase64 = await generateMeditationAudio(script, config.voice);
             const audioUrl = await createAudioUrlFromBase64(audioBase64);
 
-            setSessionData({ imageUrl, audioUrl });
+            setSessionData({ images, audioUrl });
 
-            // Add to history
-            const newHistoryItem: SessionHistoryItem = {
-                id: new Date().toISOString(),
-                prompt,
-                imageBase64,
+            const newItem: SessionHistoryItem = {
+                id: Date.now().toString(),
+                prompt: config.prompt,
+                imagesBase64: images,
                 audioBase64,
                 timestamp: Date.now(),
+                voice: config.voice
             };
-
-            setHistory(prevHistory => {
-                const filteredHistory = prevHistory.filter(item => item.prompt.toLowerCase() !== prompt.toLowerCase().trim());
-                const updatedHistory = [newHistoryItem, ...filteredHistory];
-                return updatedHistory.slice(0, 10); // Keep latest 10 sessions
-            });
+            setHistory(prev => [newItem, ...prev.filter(i => i.prompt !== config.prompt)].slice(0, 10));
 
         } catch (err: any) {
-            setError(err.message || 'An unexpected error occurred. Please try again.');
+            setError(err.message || 'The cosmic energy is misaligned. Try again.');
         } finally {
             setIsLoading(false);
-            setLoadingStage('');
         }
     };
 
-    const handleLoadFromHistory = async (item: SessionHistoryItem) => {
+    const loadHistory = async (item: SessionHistoryItem) => {
         setIsLoading(true);
-        setError(null);
-        setLoadingStage('Loading session from history...');
-        
-        if (audioRef.current) audioRef.current.pause();
-        if (backgroundAudioRef.current) backgroundAudioRef.current.pause();
-
-        setIsPlaying(false);
-        setCurrentTime(0);
-        setDuration(0);
-
         try {
-            const imageUrl = `data:image/jpeg;base64,${item.imageBase64}`;
             const audioUrl = await createAudioUrlFromBase64(item.audioBase64);
-
-            setPrompt(item.prompt);
-            setSessionData({ imageUrl, audioUrl });
-            
+            setSessionData({ images: item.imagesBase64, audioUrl });
+            setConfig(prev => ({ ...prev, prompt: item.prompt, voice: item.voice }));
             window.scrollTo({ top: 0, behavior: 'smooth' });
-
-        } catch (err: any) {
-            setError("Failed to load the session. The data might be corrupted.");
+        } catch {
+            setError("Could not retrieve session.");
         } finally {
             setIsLoading(false);
-            setLoadingStage('');
         }
     };
 
-    const handleClearHistory = () => {
-        if (window.confirm("Are you sure you want to clear your entire meditation history?")) {
-            setHistory([]);
-        }
+    const formatTime = (s: number) => {
+        const mins = Math.floor(s / 60);
+        const secs = Math.floor(s % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
-
-    const syncPlay = () => {
-        if (backgroundAudioRef.current && backgroundMusicUrl) {
-            backgroundAudioRef.current.volume = backgroundMusicVolume;
-            backgroundAudioRef.current.play().catch(console.error);
-        }
-    };
-
-    const syncPause = () => {
-        backgroundAudioRef.current?.pause();
-    };
-    
-    const handleMusicChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const value = e.target.value;
-        setSelectedTrack(value);
-        if (value === 'none' || value === 'upload') {
-            setBackgroundMusicUrl('');
-             if (backgroundAudioRef.current) {
-                backgroundAudioRef.current.pause();
-            }
-        } else {
-            setBackgroundMusicUrl(value);
-        }
-    };
-
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const url = URL.createObjectURL(file);
-            setBackgroundMusicUrl(url);
-        }
-    };
-
-    const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const newVolume = parseFloat(e.target.value);
-        setBackgroundMusicVolume(newVolume);
-        if (backgroundAudioRef.current) {
-            backgroundAudioRef.current.volume = newVolume;
-        }
-    };
-    
-    const togglePlayPause = () => {
-        if (audioRef.current) {
-            if (isPlaying) {
-                audioRef.current.pause();
-            } else {
-                audioRef.current.play().catch(console.error);
-            }
-        }
-    };
-
-    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (audioRef.current) {
-            const newTime = parseFloat(e.target.value);
-            audioRef.current.currentTime = newTime;
-            setCurrentTime(newTime);
-        }
-    };
-
-    const formatTime = (timeInSeconds: number): string => {
-        if (isNaN(timeInSeconds) || timeInSeconds < 0) return '00:00';
-        const minutes = Math.floor(timeInSeconds / 60);
-        const seconds = Math.floor(timeInSeconds % 60);
-        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    };
-
-    const SparklesIcon = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm6 2a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1V5a1 1 0 011-1zm6 6a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1zM6 14a1 1 0 011 1v1h1a1 1 0 110 2H7v1a1 1 0 11-2 0v-1H4a1 1 0 110-2h1v-1a1 1 0 011-1z" clipRule="evenodd" />
-      </svg>
-    );
-    
-    const VolumeIcon = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-      </svg>
-    );
-
-    const PlayIcon = () => (
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-        </svg>
-    );
-    
-    const PauseIcon = () => (
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M5.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75A.75.75 0 007.25 3h-1.5zM12.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75h-1.5z" />
-        </svg>
-    );
 
     return (
-        <div className="flex flex-col items-center space-y-6">
-            <DailyFocus />
-            <div className="w-full bg-slate-800/50 p-6 rounded-xl shadow-lg border border-slate-700">
-                <h2 className="text-2xl font-bold text-center mb-1 text-slate-100">Create Your Sanctuary</h2>
-                <p className="text-center text-slate-400 mb-6">Describe the theme for your personalized meditation session.</p>
-                
-                <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                        type="text"
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="e.g., A calm forest by a gentle stream"
-                        disabled={isLoading}
-                        className="flex-grow bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-50"
-                    />
-                    <button
-                        onClick={handleGenerate}
-                        disabled={isLoading}
-                        className="flex items-center justify-center gap-2 bg-indigo-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-indigo-700 transition-all duration-300 disabled:bg-indigo-500 disabled:cursor-not-allowed transform hover:scale-105"
-                    >
-                      <SparklesIcon />
-                      {isLoading ? 'Generating...' : 'Generate'}
-                    </button>
+        <div className="max-w-4xl mx-auto space-y-8 pb-12">
+            {!isZenMode && <DailyFocus />}
+
+            {/* Config & Input Area */}
+            {!sessionData && !isLoading && (
+                <div className="bg-slate-900/40 backdrop-blur-xl p-8 rounded-3xl border border-white/5 shadow-2xl space-y-8">
+                    <div className="text-center space-y-2">
+                        <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-b from-white to-slate-400">Design Your Session</h2>
+                        <p className="text-slate-400 text-sm">Every detail crafted by AI for your peace of mind.</p>
+                    </div>
+
+                    <div className="space-y-6">
+                        <div className="space-y-3">
+                            <label className="text-xs font-bold uppercase tracking-widest text-indigo-400 px-1">Theme & Intent</label>
+                            <textarea
+                                value={config.prompt}
+                                onChange={(e) => setConfig({ ...config, prompt: e.target.value })}
+                                placeholder="e.g., A celestial journey through the stars or Sitting under a cherry blossom tree..."
+                                className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg text-white placeholder-white/20 focus:ring-2 focus:ring-indigo-500/50 transition-all outline-none min-h-[100px] resize-none"
+                            />
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="space-y-3">
+                                <label className="text-xs font-bold uppercase tracking-widest text-indigo-400 px-1">Choose Your Guide</label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {VOICES.map(v => (
+                                        <button
+                                            key={v.value}
+                                            onClick={() => setConfig({ ...config, voice: v.value })}
+                                            className={`flex flex-col text-left p-4 rounded-xl border transition-all group ${
+                                                config.voice === v.value 
+                                                ? 'bg-indigo-600 border-indigo-400 shadow-lg shadow-indigo-600/20' 
+                                                : 'bg-white/5 border-white/5 hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <div className="flex justify-between items-center w-full mb-2">
+                                                <span className="font-semibold">{v.label}</span>
+                                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${
+                                                    config.voice === v.value ? 'bg-indigo-500 text-white' : 'bg-white/10 text-indigo-300'
+                                                }`}>
+                                                    {v.recommendedFor}
+                                                </span>
+                                            </div>
+                                            <p className={`text-xs leading-relaxed ${config.voice === v.value ? 'text-indigo-100' : 'text-slate-400 group-hover:text-slate-300'}`}>
+                                                {v.desc}
+                                            </p>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold uppercase tracking-widest text-indigo-400 px-1">Duration</label>
+                                    <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/5">
+                                        {(['short', 'medium', 'long'] as const).map(d => (
+                                            <button
+                                                key={d}
+                                                onClick={() => setConfig({ ...config, duration: d })}
+                                                className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${config.duration === d ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                                            >
+                                                {d}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold uppercase tracking-widest text-indigo-400 px-1">Atmosphere</label>
+                                    <select
+                                        value={config.atmosphere}
+                                        onChange={(e) => setConfig({ ...config, atmosphere: e.target.value })}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none"
+                                    >
+                                        <option>Calm & Ethereal</option>
+                                        <option>Deeply Grounding</option>
+                                        <option>Celestial & Cosmic</option>
+                                        <option>Nature-Infused</option>
+                                        <option>Vitality & Energy</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleGenerate}
+                            disabled={isLoading}
+                            className="w-full py-5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl font-bold text-lg hover:shadow-2xl hover:shadow-indigo-500/30 transition-all transform hover:-translate-y-1 active:scale-95 disabled:opacity-50"
+                        >
+                            Generate Session
+                        </button>
+                    </div>
                 </div>
-                {error && <p className="text-red-400 text-center mt-4">{error}</p>}
-            </div>
+            )}
 
             {isLoading && <LoadingIndicator stage={loadingStage} />}
 
+            {/* Immersive Player */}
             {sessionData && !isLoading && (
-                <div className="w-full aspect-video bg-black rounded-xl shadow-2xl overflow-hidden relative border-2 border-slate-700">
-                    <img src={sessionData.imageUrl} alt={prompt} className="w-full h-full object-cover" />
-                    {sessionData.audioUrl && (
-                        <div className="absolute bottom-0 left-0 right-0 p-4 bg-black/60 backdrop-blur-sm">
-                            <audio
-                                ref={audioRef}
-                                src={sessionData.audioUrl}
-                                onPlay={() => { setIsPlaying(true); syncPlay(); }}
-                                onPause={() => { setIsPlaying(false); syncPause(); }}
-                                onEnded={() => {
-                                    setIsPlaying(false);
-                                    syncPause();
-                                    setCurrentTime(0);
-                                }}
-                                onTimeUpdate={() => { if (audioRef.current) setCurrentTime(audioRef.current.currentTime); }}
-                                onLoadedMetadata={() => { if (audioRef.current) setDuration(audioRef.current.duration); }}
-                                hidden
-                            >
-                                Your browser does not support the audio element.
-                            </audio>
+                <div className={`relative transition-all duration-700 ${isZenMode ? 'fixed inset-0 z-50 bg-black' : 'w-full aspect-[16/9] rounded-3xl overflow-hidden border border-white/10 shadow-2xl'}`}>
+                    {/* Slideshow Images */}
+                    {sessionData.images.map((img, idx) => (
+                        <div
+                            key={idx}
+                            className={`absolute inset-0 transition-opacity duration-[2000ms] ease-in-out ${idx === currentImageIndex ? 'opacity-100' : 'opacity-0'}`}
+                        >
+                            <img
+                                src={`data:image/jpeg;base64,${img}`}
+                                alt=""
+                                className="w-full h-full object-cover animate-[kenburns_40s_linear_infinite]"
+                            />
+                        </div>
+                    ))}
+                    
+                    {/* Subtle Overlay Particles (CSS only) */}
+                    <div className="absolute inset-0 pointer-events-none opacity-40 mix-blend-screen bg-[radial-gradient(circle,rgba(255,255,255,0.1)_1px,transparent_1px)] bg-[length:50px_50px] animate-[floating_100s_linear_infinite]"></div>
 
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-3">
-                                    <button onClick={togglePlayPause} aria-label={isPlaying ? 'Pause meditation' : 'Play meditation'} className="flex-shrink-0 text-white p-3 rounded-full bg-slate-700/80 hover:bg-slate-600/80 transition focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                        {isPlaying ? <PauseIcon /> : <PlayIcon />}
-                                    </button>
-                                    <div className="flex items-center gap-2 flex-grow">
-                                        <span className="text-xs font-mono text-slate-300 w-12 text-center">{formatTime(currentTime)}</span>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max={duration || 0}
-                                            value={currentTime}
-                                            onChange={handleSeek}
-                                            aria-label="Seek audio track"
-                                            className="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                        />
-                                        <span className="text-xs font-mono text-slate-300 w-12 text-center">{formatTime(duration)}</span>
-                                    </div>
+                    <BreathingGuide isActive={showBreathingGuide && isPlaying} />
+
+                    {/* Player Controls */}
+                    <div className={`absolute inset-0 flex flex-col justify-end p-8 bg-gradient-to-t from-black/80 via-transparent to-transparent transition-opacity duration-500 ${isZenMode && isPlaying && currentTime > 5 ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
+                        <div className="space-y-4">
+                            {!isZenMode && (
+                                <div>
+                                    <h3 className="text-xl font-medium text-white/90">{config.prompt}</h3>
+                                    <p className="text-indigo-300 text-xs font-bold uppercase tracking-widest">Guided by {config.voice}</p>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                                    <label htmlFor="music-select" className="text-sm font-medium text-slate-300">Background Music:</label>
-                                    <select 
-                                        id="music-select" 
-                                        value={selectedTrack} 
-                                        onChange={handleMusicChange}
-                                        className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    >
-                                        {backgroundTracks.map(track => (
-                                            <option key={track.value} value={track.value}>{track.label}</option>
-                                        ))}
-                                    </select>
-                                    
-                                    {selectedTrack === 'upload' && (
-                                        <input 
-                                            type="file" 
-                                            accept="audio/*" 
-                                            onChange={handleFileUpload}
-                                            className="text-sm text-slate-300 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-500 file:text-white hover:file:bg-indigo-600"
-                                        />
+                            )}
+
+                            <div className="flex items-center gap-6">
+                                <button
+                                    onClick={() => setIsPlaying(!isPlaying)}
+                                    className="w-14 h-14 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center transition-all border border-white/20"
+                                >
+                                    {isPlaying ? (
+                                        <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M5.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75A.75.75 0 007.25 3h-1.5zM12.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75h-1.5z"/></svg>
+                                    ) : (
+                                        <svg className="w-6 h-6 text-white translate-x-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/></svg>
                                     )}
-                                    
-                                    {backgroundMusicUrl && (
-                                        <div className="flex items-center gap-2 flex-grow min-w-[150px]">
-                                            <VolumeIcon />
-                                            <input 
-                                                type="range" 
-                                                min="0" 
-                                                max="1" 
-                                                step="0.05" 
-                                                value={backgroundMusicVolume}
-                                                onChange={handleVolumeChange}
-                                                className="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                                aria-label="Background music volume"
-                                            />
-                                        </div>
+                                </button>
+
+                                <div className="flex-grow space-y-2">
+                                    <div className="flex justify-between text-[10px] text-white/50 font-mono">
+                                        <span>{formatTime(currentTime)}</span>
+                                        <span>{formatTime(duration)}</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max={duration || 0}
+                                        value={currentTime}
+                                        onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            if (audioRef.current) audioRef.current.currentTime = val;
+                                        }}
+                                        className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-4">
+                                    <button
+                                        onClick={() => setShowBreathingGuide(!showBreathingGuide)}
+                                        className={`p-2 rounded-lg border transition-all ${showBreathingGuide ? 'bg-indigo-600/50 border-indigo-400' : 'bg-white/5 border-white/10'}`}
+                                        title="Toggle Breathing Guide"
+                                    >
+                                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+                                    </button>
+                                    <button
+                                        onClick={() => setIsZenMode(!isZenMode)}
+                                        className={`p-2 rounded-lg border transition-all ${isZenMode ? 'bg-indigo-600/50 border-indigo-400' : 'bg-white/5 border-white/10'}`}
+                                        title="Zen Mode"
+                                    >
+                                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                                    </button>
+                                    {isZenMode && (
+                                        <button onClick={() => setSessionData(null)} className="p-2 bg-white/10 rounded-lg text-white">Exit</button>
                                     )}
                                 </div>
                             </div>
                         </div>
-                    )}
-                    <audio ref={backgroundAudioRef} src={backgroundMusicUrl} loop hidden />
+                    </div>
+
+                    <audio
+                        ref={audioRef}
+                        src={sessionData.audioUrl}
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => setIsPlaying(false)}
+                        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
+                        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+                        autoPlay
+                    />
                 </div>
             )}
 
-            {history.length > 0 && !sessionData && !isLoading && (
-                <div className="w-full mt-8 bg-slate-800/50 p-6 rounded-xl shadow-lg border border-slate-700">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xl font-bold text-slate-200">Session History</h3>
-                        <button
-                            onClick={handleClearHistory}
-                            className="text-sm text-slate-400 hover:text-red-400 transition-colors"
-                            aria-label="Clear session history"
-                        >
-                            Clear All
-                        </button>
+            {/* History Grid */}
+            {!sessionData && !isLoading && history.length > 0 && (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-end">
+                        <h3 className="text-lg font-bold text-white/80">Previous Sanctuaries</h3>
+                        <button onClick={() => setHistory([])} className="text-xs text-slate-500 hover:text-red-400 transition-colors">Clear History</button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {history.map((item) => (
-                             <div 
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {history.map(item => (
+                            <button
                                 key={item.id}
-                                className="group bg-slate-700 rounded-lg overflow-hidden shadow-md cursor-pointer transition-transform transform hover:-translate-y-1 border border-slate-600 hover:border-indigo-500"
-                                onClick={() => handleLoadFromHistory(item)}
-                                role="button"
-                                tabIndex={0}
-                                aria-label={`Load session: ${item.prompt}`}
-                                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleLoadFromHistory(item)}
+                                onClick={() => loadHistory(item)}
+                                className="group relative aspect-video rounded-2xl overflow-hidden border border-white/5 hover:border-indigo-500/50 transition-all text-left"
                             >
-                                <div className="relative">
-                                    <img
-                                        src={`data:image/jpeg;base64,${item.imageBase64}`}
-                                        alt={item.prompt}
-                                        className="w-full h-24 object-cover"
-                                    />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                        <div className="bg-indigo-600 text-white rounded-full p-3 shadow-lg">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                        </div>
+                                <img src={`data:image/jpeg;base64,${item.imagesBase64[0]}`} alt="" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+                                <div className="absolute inset-0 bg-black/40 p-3 flex flex-col justify-end">
+                                    <p className="text-[10px] text-white/50 truncate mb-1">{item.prompt}</p>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-[8px] uppercase tracking-tighter text-indigo-400 font-bold">{item.voice}</span>
+                                        <span className="text-[8px] text-white/30">{new Date(item.timestamp).toLocaleDateString()}</span>
                                     </div>
                                 </div>
-                                <div className="p-3">
-                                    <p className="text-slate-200 text-sm font-medium truncate group-hover:text-indigo-300">{item.prompt}</p>
-                                    <p className="text-slate-400 text-xs mt-1">{new Date(item.timestamp).toLocaleString()}</p>
-                                </div>
-                            </div>
+                            </button>
                         ))}
                     </div>
                 </div>
             )}
+
+            <style>{`
+                @keyframes kenburns {
+                    0% { transform: scale(1) translate(0,0); }
+                    50% { transform: scale(1.1) translate(-2%, -1%); }
+                    100% { transform: scale(1) translate(0,0); }
+                }
+                @keyframes floating {
+                    from { background-position: 0 0; }
+                    to { background-position: 1000px 1000px; }
+                }
+            `}</style>
         </div>
     );
 };

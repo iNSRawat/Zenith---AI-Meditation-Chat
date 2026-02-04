@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage } from '../types';
 import { streamChatResponse } from '../services/geminiService';
@@ -47,7 +48,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
 
 const Chatbot: React.FC = () => {
     const [messages, setMessages] = useState<ChatMessage[]>([
-        { role: 'model', content: "Hello! How can I help you on your mindfulness journey today?" }
+        { role: 'model', content: "Hello. I am Zenith, your mindfulness companion. I'm here to listen and support you. How are you feeling right now?" }
     ]);
     const [input, setInput] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);

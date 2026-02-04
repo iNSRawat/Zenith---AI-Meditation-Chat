@@ -1,9 +1,6 @@
-import { GoogleGenAI, Chat, Modality } from "@google/genai";
-import { ChatMessage } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable is not set");
-}
+import { GoogleGenAI, Chat, Modality } from "@google/genai";
+import { ChatMessage, VoiceName, SessionConfig } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 let chatInstance: Chat | null = null;
@@ -11,74 +8,94 @@ let chatInstance: Chat | null = null;
 export const generateDailyFocus = async (): Promise<string> => {
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: "Create a short, inspiring mindfulness quote or daily intention. It should be a single sentence, under 15 words. For example: 'Embrace the quiet moments today.' or 'Let curiosity guide your awareness.'",
+            model: 'gemini-3-flash-preview',
+            contents: "Create a short, inspiring mindfulness quote or daily intention. It should be a single sentence, under 15 words. Keep it profound yet simple.",
             config: {
                 temperature: 0.8,
             }
         });
-        return response.text;
+        return response.text || "Breathe deeply and be present.";
     } catch (error) {
         console.error("Error generating daily focus:", error);
         throw new Error("Failed to generate daily focus.");
     }
 };
 
-export const generateMeditationScript = async (prompt: string): Promise<string> => {
+export const generateMeditationScript = async (config: SessionConfig): Promise<string> => {
+    const lengthMap = { short: '150', medium: '300', long: '500' };
+    const wordCount = lengthMap[config.duration];
+    
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Create a calm, soothing guided meditation script based on this theme: "${prompt}". The script should be about 200-250 words long, suitable for a text-to-speech voiceover. Structure it with pauses and gentle instructions.`,
+            model: 'gemini-3-pro-preview',
+            contents: `Create a calm, soothing guided meditation script.
+            Theme: "${config.prompt}"
+            Atmosphere: "${config.atmosphere}"
+            Target Length: ~${wordCount} words.
+            The script should include gentle pauses (indicated by ...) and breathing instructions. 
+            Do not include any stage directions, only the words to be spoken.`,
             config: {
                 temperature: 0.7,
             }
         });
-        return response.text;
+        return response.text || "";
     } catch (error) {
         console.error("Error generating meditation script:", error);
         throw new Error("Failed to generate meditation script.");
     }
 };
 
-export const generateMeditationImage = async (prompt: string): Promise<string> => {
+export const generateMeditationImages = async (prompt: string): Promise<string[]> => {
+    // We generate 3 images for a slideshow effect
+    const imagePrompts = [
+        `Serene, wide landscape representing: ${prompt}. Atmospheric lighting, no text, no people, photorealistic digital art.`,
+        `Close-up macro detail or abstract textures matching the theme: ${prompt}. Ethereal, soft focus, calming colors.`,
+        `A dreamlike, wider vista expanding on: ${prompt}. Sunset or moonlight colors, cinematic, highly detailed.`
+    ];
+
     try {
-        const response = await ai.models.generateImages({
-            model: 'imagen-4.0-generate-001',
-            prompt: `A beautiful, serene, photorealistic digital art piece for a guided meditation. Theme: "${prompt}". The image should be calming and high-resolution, with no text or people. Aspect ratio 16:9.`,
-            config: {
-                numberOfImages: 1,
-                outputMimeType: 'image/jpeg',
-                aspectRatio: '16:9',
-            },
-        });
-        if (response.generatedImages && response.generatedImages.length > 0) {
-            return response.generatedImages[0].image.imageBytes;
+        const results = await Promise.all(imagePrompts.map(p => 
+            ai.models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: { parts: [{ text: p }] },
+                config: {
+                    imageConfig: { aspectRatio: "16:9" }
+                }
+            })
+        ));
+
+        const images: string[] = [];
+        for (const res of results) {
+            const part = res.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+            if (part?.inlineData?.data) {
+                images.push(part.inlineData.data);
+            }
         }
-        throw new Error("No image was generated.");
+        
+        if (images.length === 0) throw new Error("No images generated.");
+        return images;
     } catch (error) {
-        console.error("Error generating meditation image:", error);
-        throw new Error("Failed to generate meditation image.");
+        console.error("Error generating meditation images:", error);
+        throw new Error("Failed to generate meditation images.");
     }
 };
 
-export const generateMeditationAudio = async (script: string): Promise<string> => {
+export const generateMeditationAudio = async (script: string, voice: VoiceName): Promise<string> => {
     try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: `Say with a calm, soothing, and gentle voice: ${script}` }] }],
+            contents: [{ parts: [{ text: script }] }],
             config: {
                 responseModalities: [Modality.AUDIO],
                 speechConfig: {
                     voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+                        prebuiltVoiceConfig: { voiceName: voice },
                     },
                 },
             },
         });
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (base64Audio) {
-            return base64Audio;
-        }
+        if (base64Audio) return base64Audio;
         throw new Error("No audio data received.");
     } catch (error) {
         console.error("Error generating meditation audio:", error);
@@ -89,28 +106,24 @@ export const generateMeditationAudio = async (script: string): Promise<string> =
 const getChatInstance = (): Chat => {
     if (!chatInstance) {
         chatInstance = ai.chats.create({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             config: {
-                systemInstruction: "You are a friendly and helpful chatbot for the Zenith meditation app. Answer questions about meditation, mindfulness, and general well-being. Keep your responses concise and positive.",
+                systemInstruction: "You are Zenith, a deeply empathetic and supportive mindfulness companion. Your purpose is to create a safe, non-judgmental space for users to explore their feelings. When a user shares an emotion, always acknowledge and validate it with kindness first (e.g., 'I hear that you're feeling...', 'It is completely understandable to feel...'). Offer gentle affirmations and soothing words. Avoid clinical or purely factual responses; instead, speak with warmth, patience, and genuine care, like a wise friend. Help users with meditation and stress, but prioritize emotional connection and comfort.",
             },
         });
     }
     return chatInstance;
 };
 
-// Fix: The call to `history.findLast` was causing a TypeScript error because `findLast`
-// is a recent addition to JavaScript. The code was also unused. The `history` parameter has been removed
-// because the stateful `chat` object, created by `ai.chats.create`, maintains its own history.
 export const streamChatResponse = async (newMessage: string, onChunk: (chunk: string) => void) => {
     const chat = getChatInstance();
-    // The `ai.chats.create` keeps its own history.
     try {
         const responseStream = await chat.sendMessageStream({ message: newMessage });
         for await (const chunk of responseStream) {
-             onChunk(chunk.text);
+             onChunk(chunk.text || "");
         }
     } catch (error) {
         console.error("Error in chat stream:", error);
-        onChunk("Sorry, I encountered an error. Please try again.");
+        onChunk("I apologize, but I'm having trouble connecting right now. Let's take a deep breath together.");
     }
 };
