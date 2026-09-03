@@ -6,28 +6,29 @@ export interface GroundedSource {
 }
 
 export interface ChatMessage {
-  id: string;
+  id?: string;
   role: 'user' | 'model';
   content: string;
   sources?: GroundedSource[];
-  timestamp: number;
+  timestamp?: number;
 }
 
 export interface SessionConfig {
   prompt: string;
   voice: VoiceName;
-  atmosphere: string;
+  atmosphere?: string;
   duration: 'short' | 'medium' | 'long';
-  ambientSound: 'binaural-drone' | 'singing-bowl' | 'gentle-rain' | 'ocean-drift' | 'none';
+  ambientSound?: 'binaural-drone' | 'singing-bowl' | 'gentle-rain' | 'ocean-drift' | 'none';
 }
 
 export interface SessionHistoryItem {
   id: string;
   prompt: string;
-  atmosphere: string;
+  atmosphere?: string;
   voice: VoiceName;
   script?: string;
   imageBase64?: string | null;
+  imagesBase64?: string[];
   audioBase64: string | null;
   timestamp: number;
   durationSeconds?: number;

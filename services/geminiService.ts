@@ -112,3 +112,18 @@ export const askGroundedMindfulness = async (
     sources: data.sources || [],
   };
 };
+
+export const generateDailyFocus = fetchDailyFocus;
+
+export const generateMeditationImages = async (prompt: string): Promise<string[]> => {
+  const res = await generateMeditationVisual(prompt, 'Calm & Ethereal');
+  return res.imageBase64 ? [res.imageBase64] : [];
+};
+
+export const streamChatResponse = async (
+  prompt: string,
+  onChunk: (chunk: string) => void
+): Promise<void> => {
+  const result = await askGroundedMindfulness(prompt);
+  onChunk(result.text);
+};

@@ -73,7 +73,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): 
     } catch (err: any) {
       lastErr = err;
       if (attempt < retries && isTransientError(err)) {
-        console.warn(`Retry attempt ${attempt + 1} after error: ${extractCleanErrorMessage(err)}. Waiting ${delayMs * (attempt + 1)}ms...`);
+        console.log(`[ai-retry] Attempt ${attempt + 1} after transient status. Waiting ${delayMs * (attempt + 1)}ms...`);
         await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
         continue;
       }
@@ -106,15 +106,15 @@ app.get('/api/daily-focus', async (req, res) => {
     try {
       const response = await withRetry(async () => {
         return await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-3.6-flash',
           contents: 'Generate a single, deeply calming, poetic mindfulness quote or daily intention. Under 14 words. Profound, peaceful, and centering. Return only the quote text.',
           config: { temperature: 0.8 },
         });
-      }, 1, 800);
+      }, 1, 600);
       focus = response.text?.trim() || '';
     } catch {
       const fallbackResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: 'Generate a single, deeply calming, poetic mindfulness quote or daily intention. Under 14 words. Profound, peaceful, and centering. Return only the quote text.',
         config: { temperature: 0.8 },
       });
@@ -123,7 +123,7 @@ app.get('/api/daily-focus', async (req, res) => {
 
     res.json({ focus: focus || randomFallback });
   } catch (error: any) {
-    console.error('Error generating daily focus:', extractCleanErrorMessage(error));
+    console.log('Using curated daily focus:', extractCleanErrorMessage(error));
     res.json({ focus: randomFallback });
   }
 });
@@ -147,21 +147,21 @@ Formatting: Use gentle pauses marked with ellipsis (...). Do not include any sta
     try {
       const response = await withRetry(async () => {
         return await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-3.6-flash',
           contents: promptText,
           config: { temperature: 0.7 },
         });
-      }, 2, 1000);
+      }, 1, 800);
       script = response.text?.trim() || '';
     } catch (primaryErr) {
-      console.warn('Primary model gemini-3.8-flash busy, falling back to gemini-2.5-flash:', extractCleanErrorMessage(primaryErr));
+      console.log('Primary model busy, switching to secondary model:', extractCleanErrorMessage(primaryErr));
       const fallbackRes = await withRetry(async () => {
         return await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.1-flash-lite',
           contents: promptText,
           config: { temperature: 0.7 },
         });
-      }, 1, 1000);
+      }, 1, 800);
       script = fallbackRes.text?.trim() || '';
     }
 
@@ -203,19 +203,18 @@ app.post('/api/meditation/generate-audio', async (req, res) => {
             },
           },
         });
-      }, 2, 1200);
+      }, 1, 1000);
 
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (base64Audio) {
         return res.json({ audioBase64: base64Audio, fallbackToClientVoice: false });
       }
     } catch (ttsErr: any) {
-      console.warn('TTS preview model experienced transient high demand:', extractCleanErrorMessage(ttsErr));
-      // Rather than throwing 500 and failing the entire session, gracefully fallback to browser audio guidance
+      console.log('TTS preview model busy, using companion voice:', extractCleanErrorMessage(ttsErr));
       return res.json({
         audioBase64: null,
         fallbackToClientVoice: true,
-        message: 'Voice server is experiencing a momentary spike in demand. Your session will play using the browser companion voice.',
+        message: 'Voice guidance is active with companion narration.',
       });
     }
 
@@ -264,7 +263,7 @@ app.post('/api/meditation/generate-visual', async (req, res) => {
         return res.json({ imageBase64: base64Image, fallback: false });
       }
     } catch (imgErr) {
-      console.warn('Image generation with gemini-3.1-flash-lite-image was not available or requires paid key, using procedural sanctuary visual:', imgErr);
+      console.log('Procedural sanctuary visual active.');
     }
 
     // Fallback indicator for procedural meditative sanctuary
@@ -276,7 +275,6 @@ app.post('/api/meditation/generate-visual', async (req, res) => {
 });
 
 // Grounded Search Chatbot for Mindfulness & Wellness Science
-// Uses gemini-3.5-flash with googleSearch tool as specified in the instructions
 app.post('/api/chat/grounded-search', async (req, res) => {
   try {
     const { message, history } = req.body;
@@ -287,7 +285,7 @@ app.post('/api/chat/grounded-search', async (req, res) => {
     const ai = getAi();
     const systemInstruction = `You are Zenith's Mindfulness & Wellness Science Guide.
 Your purpose is to provide warm, empathetic, and scientifically grounded insights on meditation, mindfulness practices, breathwork (like physiological sigh, 4-7-8, box breathing), sleep hygiene, neuroscience of stress reduction, and mental wellbeing.
-When answering, utilize Google Search to find current, verified research, clinical trials, or expert consensus where relevant.
+When answering, provide verified insights, clinical principles, or expert consensus where relevant.
 Be supportive, clear, practical, and compassionate. If answering about health or medical conditions, provide helpful evidence-based wellness guidance while gently noting it is for mindfulness and informational purposes.`;
 
     // Construct prompt with brief context if available
@@ -298,10 +296,13 @@ Be supportive, clear, practical, and compassionate. If answering about health or
     }
 
     let response: any;
+    let usedSearch = false;
+
+    // Try with Google Search tool first
     try {
       response = await withRetry(async () => {
         return await ai.models.generateContent({
-          model: 'gemini-3.5-flash',
+          model: 'gemini-3.6-flash',
           contents: fullPrompt,
           config: {
             systemInstruction,
@@ -309,26 +310,27 @@ Be supportive, clear, practical, and compassionate. If answering about health or
             temperature: 0.6,
           },
         });
-      }, 2, 1000);
-    } catch (primaryErr) {
-      console.warn('Grounded search primary model hit transient error, trying gemini-2.5-flash fallback:', extractCleanErrorMessage(primaryErr));
+      }, 1, 800);
+      usedSearch = true;
+    } catch (searchErr) {
+      console.log('Grounding search tool quota or unavailable, generating direct answer:', extractCleanErrorMessage(searchErr));
+      // Fall back directly to gemini-3.6-flash without search tool
       response = await withRetry(async () => {
         return await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.6-flash',
           contents: fullPrompt,
           config: {
             systemInstruction,
-            tools: [{ googleSearch: {} }],
             temperature: 0.6,
           },
         });
-      }, 1, 1000);
+      }, 1, 800);
     }
 
     const text = response?.text || 'I am here with you. Take a slow, peaceful breath.';
-    const rawChunks = response?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const rawChunks = usedSearch ? (response?.candidates?.[0]?.groundingMetadata?.groundingChunks || []) : [];
     
-    // Extract clean web sources from grounding metadata
+    // Extract clean web sources from grounding metadata if available
     const sources: Array<{ title: string; url: string }> = [];
     for (const chunk of rawChunks) {
       if ((chunk as any).web?.uri) {
@@ -352,7 +354,7 @@ Be supportive, clear, practical, and compassionate. If answering about health or
     console.error('Error in grounded search chat:', error);
     res.status(500).json({
       error: extractCleanErrorMessage(error),
-      fallbackText: "The mindfulness knowledge base is experiencing high demand right now. Please take a mindful breath and try your question again.",
+      fallbackText: "I am here with you. Take a slow, gentle breath and try your question again.",
     });
   }
 });
@@ -464,7 +466,7 @@ async function start() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*all', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

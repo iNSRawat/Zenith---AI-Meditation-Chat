@@ -175,8 +175,9 @@ const MeditationGenerator: React.FC = () => {
             const script = await generateMeditationScript(config);
             
             setLoadingStage(`Capturing the voice of ${config.voice}...`);
-            const audioBase64 = await generateMeditationAudio(script, config.voice);
-            const audioUrl = await createAudioUrlFromBase64(audioBase64);
+            const audioResult = await generateMeditationAudio(script, config.voice);
+            const audioBase64 = audioResult.audioBase64;
+            const audioUrl = audioBase64 ? await createAudioUrlFromBase64(audioBase64) : '';
 
             setSessionData({ images, audioUrl });
 
@@ -200,8 +201,8 @@ const MeditationGenerator: React.FC = () => {
     const loadHistory = async (item: SessionHistoryItem) => {
         setIsLoading(true);
         try {
-            const audioUrl = await createAudioUrlFromBase64(item.audioBase64);
-            setSessionData({ images: item.imagesBase64, audioUrl });
+            const audioUrl = item.audioBase64 ? await createAudioUrlFromBase64(item.audioBase64) : '';
+            setSessionData({ images: item.imagesBase64 || [], audioUrl });
             setConfig(prev => ({ ...prev, prompt: item.prompt, voice: item.voice }));
             window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch {
