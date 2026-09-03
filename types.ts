@@ -18,7 +18,18 @@ export interface SessionConfig {
   voice: VoiceName;
   atmosphere?: string;
   duration: 'short' | 'medium' | 'long';
-  ambientSound?: 'binaural-drone' | 'singing-bowl' | 'gentle-rain' | 'ocean-drift' | 'none';
+  ambientSound?: 'lyria-ambient' | 'binaural-drone' | 'singing-bowl' | 'gentle-rain' | 'ocean-drift' | 'none';
+}
+
+export interface AmbientTrack {
+  id: string;
+  title: string;
+  prompt: string;
+  model: 'lyria-3-clip-preview' | 'lyria-3-pro-preview' | 'web-synth';
+  durationMode: 'clip' | 'full';
+  audioUrl: string;
+  lyrics?: string;
+  createdAt: number;
 }
 
 export interface SessionHistoryItem {

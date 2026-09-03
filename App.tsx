@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Sparkles, Mic, Globe, Heart } from 'lucide-react';
+import { Sparkles, Mic, Globe, Heart, Music } from 'lucide-react';
 import { MeditationStudio } from './components/MeditationStudio';
 import { LiveVoiceGuide } from './components/LiveVoiceGuide';
 import { GroundedWisdomChat } from './components/GroundedWisdomChat';
+import { AmbientAudioStudio } from './components/AmbientAudioStudio';
 
-type Tab = 'studio' | 'live' | 'wisdom';
+type Tab = 'studio' | 'ambient' | 'live' | 'wisdom';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('studio');
@@ -29,7 +30,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Clean Modern Navigation Tabs */}
-          <nav id="app-navigation-tabs" className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-2xl border border-slate-800 shadow-inner">
+          <nav id="app-navigation-tabs" className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-2xl border border-slate-800 shadow-inner flex-wrap justify-center">
             <button
               id="tab-meditation-studio"
               onClick={() => setActiveTab('studio')}
@@ -41,6 +42,20 @@ const App: React.FC = () => {
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>Studio</span>
+            </button>
+
+            <button
+              id="tab-ambient-audio"
+              onClick={() => setActiveTab('ambient')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeTab === 'ambient'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Music className="w-3.5 h-3.5" />
+              <span>Ambient Audio</span>
+              <span className="text-[9px] px-1 py-0.2 bg-indigo-500/30 text-indigo-200 rounded">Lyria</span>
             </button>
 
             <button
@@ -76,6 +91,7 @@ const App: React.FC = () => {
       {/* Primary Application Workspace */}
       <main className="flex-grow max-w-4xl w-full mx-auto p-4 sm:p-6 md:p-8">
         {activeTab === 'studio' && <MeditationStudio />}
+        {activeTab === 'ambient' && <AmbientAudioStudio />}
         {activeTab === 'live' && <LiveVoiceGuide />}
         {activeTab === 'wisdom' && <GroundedWisdomChat />}
       </main>

@@ -1,6 +1,6 @@
 {
   "name": "Zenith - AI Meditation & Chat",
-  "description": "A guided meditation app with custom generative sessions, unique atmospheric visuals, voiceovers, real-time voice conversations via Live API, and grounded search for mindfulness wisdom.",
+  "description": "A guided meditation app with custom generative sessions, atmospheric Lyria ambient music and audio generation, unique atmospheric visuals, voiceovers, real-time voice conversations via Live API, and grounded search for mindfulness wisdom.",
   "requestFramePermissions": [
     "microphone"
   ],

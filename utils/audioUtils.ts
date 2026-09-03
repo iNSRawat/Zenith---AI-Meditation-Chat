@@ -174,7 +174,7 @@ export class AmbientSoundEngine {
   private nodes: (AudioNode | number)[] = [];
   private currentType: string = 'none';
 
-  public start(type: 'binaural-drone' | 'singing-bowl' | 'gentle-rain' | 'ocean-drift' | 'none', volume: number = 0.3) {
+  public start(type: 'lyria-ambient' | 'binaural-drone' | 'singing-bowl' | 'gentle-rain' | 'ocean-drift' | 'none', volume: number = 0.3) {
     this.stop();
     if (type === 'none') return;
     this.currentType = type;
@@ -185,7 +185,23 @@ export class AmbientSoundEngine {
     this.gainNode.gain.setValueAtTime(volume, this.ctx.currentTime);
     this.gainNode.connect(this.ctx.destination);
 
-    if (type === 'binaural-drone') {
+    if (type === 'lyria-ambient') {
+      // Ethereal lush ambient chords: 432Hz root, fifth, ninth, and deep sub
+      const freqs = [108, 216, 324, 432, 486];
+      freqs.forEach((f, idx) => {
+        const osc = this.ctx!.createOscillator();
+        const g = this.ctx!.createGain();
+        osc.type = idx === 0 ? 'triangle' : 'sine';
+        osc.frequency.setValueAtTime(f, this.ctx!.currentTime);
+        // Subtle detune for wide lush shimmer
+        osc.detune.setValueAtTime((idx - 2) * 4, this.ctx!.currentTime);
+        g.gain.setValueAtTime(0.25 / freqs.length, this.ctx!.currentTime);
+        osc.connect(g);
+        g.connect(this.gainNode!);
+        osc.start();
+        this.nodes.push(osc, g);
+      });
+    } else if (type === 'binaural-drone') {
       // 432 Hz warm healing tone + 438 Hz (6 Hz theta wave beat)
       const osc1 = this.ctx.createOscillator();
       const osc2 = this.ctx.createOscillator();

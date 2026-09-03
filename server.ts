@@ -359,6 +359,83 @@ Be supportive, clear, practical, and compassionate. If answering about health or
   }
 });
 
+// Lyria Ambient Music Generation
+// Uses lyria-3-clip-preview for short clips (up to 30s) or lyria-3-pro-preview for full tracks
+app.post('/api/ambient-music/generate', async (req, res) => {
+  try {
+    const { prompt, model, imageBase64, imageMimeType } = req.body;
+    const selectedModel = model === 'lyria-3-pro-preview' ? 'lyria-3-pro-preview' : 'lyria-3-clip-preview';
+    const musicPrompt = prompt?.trim() || 'Peaceful 432Hz ambient soundscape for meditation with warm ethereal pads and gentle resonant singing bowls';
+
+    const ai = getAi();
+    
+    let contents: any = musicPrompt;
+    if (imageBase64) {
+      contents = {
+        parts: [
+          { text: musicPrompt },
+          { inlineData: { data: imageBase64, mimeType: imageMimeType || 'image/jpeg' } },
+        ],
+      };
+    }
+
+    try {
+      const response = await ai.models.generateContentStream({
+        model: selectedModel,
+        contents,
+      });
+
+      let audioBase64 = '';
+      let lyrics = '';
+      let mimeType = 'audio/wav';
+
+      for await (const chunk of response) {
+        const parts = chunk.candidates?.[0]?.content?.parts;
+        if (!parts) continue;
+        for (const part of parts) {
+          if (part.inlineData?.data) {
+            if (!audioBase64 && part.inlineData.mimeType) {
+              mimeType = part.inlineData.mimeType;
+            }
+            audioBase64 += part.inlineData.data;
+          }
+          if (part.text && !lyrics) {
+            lyrics = part.text;
+          }
+        }
+      }
+
+      if (audioBase64) {
+        return res.json({
+          audioBase64,
+          mimeType,
+          lyrics,
+          modelUsed: selectedModel,
+        });
+      } else {
+        throw new Error('No audio stream received from Lyria model');
+      }
+    } catch (lyriaErr: any) {
+      console.log('Lyria model execution notice:', extractCleanErrorMessage(lyriaErr));
+      const errMsg = extractCleanErrorMessage(lyriaErr);
+      const isQuotaOrPaid = errMsg.includes('Quota') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('429');
+      
+      return res.json({
+        audioBase64: null,
+        mimeType: 'audio/wav',
+        modelUsed: selectedModel,
+        requiresPaidKey: isQuotaOrPaid,
+        message: isQuotaOrPaid
+          ? 'Lyria ambient music models require a billing-enabled Gemini API key. Switch seamlessly to procedural synthesized soundscapes or select your paid key.'
+          : `Music generation notice: ${errMsg}`,
+      });
+    }
+  } catch (err: any) {
+    console.error('Error generating ambient music:', err);
+    res.status(500).json({ error: extractCleanErrorMessage(err) });
+  }
+});
+
 const server = http.createServer(app);
 
 // WebSocket for Gemini Live API real-time voice conversation

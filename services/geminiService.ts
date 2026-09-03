@@ -113,6 +113,42 @@ export const askGroundedMindfulness = async (
   };
 };
 
+export interface AmbientMusicResult {
+  audioBase64: string | null;
+  mimeType: string;
+  lyrics?: string;
+  modelUsed: 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
+  requiresPaidKey?: boolean;
+  message?: string;
+}
+
+export const generateAmbientMusic = async (params: {
+  prompt: string;
+  model: 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
+  imageBase64?: string | null;
+}): Promise<AmbientMusicResult> => {
+  const res = await fetch('/api/ambient-music/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Music generation request failed' }));
+    throw new Error(cleanClientErrorMessage(err.error || 'Failed to generate ambient music'));
+  }
+  return await res.json();
+};
+
+export function createMusicBlobUrlFromBase64(base64Audio: string, mimeType: string = 'audio/wav'): string {
+  const binary = atob(base64Audio);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: mimeType || 'audio/wav' });
+  return URL.createObjectURL(blob);
+}
+
 export const generateDailyFocus = fetchDailyFocus;
 
 export const generateMeditationImages = async (prompt: string): Promise<string[]> => {

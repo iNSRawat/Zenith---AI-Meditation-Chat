@@ -48,6 +48,7 @@ const AMBIENT_OPTIONS: Array<{
   label: string;
   desc: string;
 }> = [
+  { value: 'lyria-ambient', label: 'Lyria Ambient Soundscape', desc: 'Lush 432Hz atmospheric chords' },
   { value: 'binaural-drone', label: '432Hz Binaural Drone', desc: 'Theta frequency for deep relaxation' },
   { value: 'singing-bowl', label: 'Tibetan Singing Bowls', desc: 'Harmonic acoustic resonance' },
   { value: 'ocean-drift', label: 'Oceanic Drift', desc: 'Gentle rhythmic wave swells' },
